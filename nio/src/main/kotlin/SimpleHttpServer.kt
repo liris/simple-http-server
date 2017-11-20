@@ -55,9 +55,7 @@ class SimpleHttpServer(private val port: Int = 3000) {
                         channel.register(selector, SelectionKey.OP_WRITE, key.attachment())
                     } catch (e: Exception) {
                         try {
-                            channel.finishConnect()
-                            channel.socket().close()
-                            channel.close()
+                            channel.closeSafely()
                         } catch (e: Exception) {}
                     }
                 }
@@ -176,15 +174,19 @@ class WriteWorker(private val handler: handler) {
         val buf = ByteBuffer.wrap(response.getOutput())
         try {
             channel.write(buf)
-            channel.finishConnect()
-            channel.socket().close()
-            channel.close()
+            channel.closeSafely()
         } catch (e: Exception) {
 
         }
     }
 
 }
+
+fun SocketChannel.closeSafely() = try {
+    this.finishConnect()
+    this.socket().close()
+    this.close()
+} catch (e: Exception) {}
 
 fun main(args: Array<String>) {
     SimpleHttpServer().run()

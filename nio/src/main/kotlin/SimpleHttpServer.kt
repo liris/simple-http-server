@@ -38,14 +38,15 @@ class SimpleHttpServer(private val port: Int = 3000) {
             if (selectorCount > 0) {
                 val keys = selector.selectedKeys()
                 println("keys $keys")
-                keys.forEach { selectedKey ->
-                    keys.remove(selectedKey)
+                val l = keys.map { selectedKey ->
                     try {
                         processSelector(selectedKey, readWorker, writeWorker)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+                    selectedKey
                 }
+                keys.removeAll(l)
             } else {
                 while (!wpool.isEmpty()) {
                     val key = wpool.poll()
@@ -114,10 +115,8 @@ class ReadWorker(private val server: SimpleHttpServer) {
 
     fun readInfinite() {
         while (true) {
-            synchronized(pool) {
-                val selectionKey = pool.take()
-                read(selectionKey)
-            }
+            val selectionKey = pool.take()
+            read(selectionKey)
         }
     }
 
@@ -128,11 +127,18 @@ class ReadWorker(private val server: SimpleHttpServer) {
         val parser = key.attachment() as RequestParser
 
         val byteArray = read(channel)
-        parser.add(byteArray)
-        if (parser.isFinished) {
-            server.addWriter(key)
+        if (!byteArray.isEmpty()) {
+            parser.add(byteArray)
+            if (parser.isFinished) {
+                server.addWriter(key)
+                key.cancel()
+            } else {
+                println("-------")
+            }
+        } else {
             key.cancel()
         }
+
     }
 
     private fun read(socketChannel: SocketChannel): ByteArray {
@@ -146,6 +152,7 @@ class ReadWorker(private val server: SimpleHttpServer) {
 
 class WriteWorker(private val handler: handler) {
     private val pool = SynchronousQueue<SelectionKey>()
+    private val executor = Executors.newFixedThreadPool(32)
 
     fun add(selectionKey: SelectionKey) {
         pool.put(selectionKey)
@@ -154,7 +161,8 @@ class WriteWorker(private val handler: handler) {
     fun writeInfinite() {
         while (true) {
             val selectionKey = pool.take()
-            write(selectionKey)
+            executor.execute { write(selectionKey) }
+
         }
     }
 
